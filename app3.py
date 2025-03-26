@@ -1,107 +1,68 @@
 import streamlit as st
 import psutil
-import pandas as pd
-import time
-import plotly.express as px
 import plotly.graph_objects as go
+import time
 
-# st.set_page_config(layout="wide", page_title="AI-Powered Performance Analyzer")
-
-st.title("🔍 AI-Powered System Performance Analyzer")
-
-# **PROCESS MONITORING**
-st.subheader("📊 Live Process Monitoring")
-
-import streamlit as st
 def ai_system_performance_analyzer():
-    st.title("🤖 AI-Powered System Performance Analyzer")
-    st.write("This page analyzes system performance using AI.")
+    st.title("📊 AI System Performance Monitoring")
 
-if __name__ == "__main__":
-    ai_system_performance_analyzer()
+    # 🛠 Sidebar Settings
+    with st.sidebar:
+        st.subheader("⚙️ Settings")
+        refresh_rate = st.slider("Refresh Interval (seconds)", 1, 10, 5)
+        dark_mode = st.toggle("🌙 Dark Mode")
 
+    theme = "plotly_dark" if dark_mode else "plotly"
 
-def get_process_list():
-    process_list = []
-    for proc in psutil.process_iter(attrs=['pid', 'name', 'cpu_percent', 'memory_percent']):
-        try:
-            process_list.append(proc.info)
-        except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
-            continue  # Ignore processes that no longer exist
-    return pd.DataFrame(process_list)
+    def get_stats():
+        return {
+            "cpu": psutil.cpu_percent(interval=1, percpu=True),
+            "memory": psutil.virtual_memory().percent,
+            "disk": psutil.disk_usage('/').percent,
+            "network": (
+                psutil.net_io_counters().bytes_sent / (1024 * 1024),
+                psutil.net_io_counters().bytes_recv / (1024 * 1024)
+            )
+        }
 
-# Sorting dropdown
-sort_option = st.selectbox("Sort by:", ["CPU Usage", "Memory Usage"], index=0)
-process_df = get_process_list()
+    stats = get_stats()
 
-# Sort the data
-if sort_option == "CPU Usage":
-    process_df = process_df.sort_values(by="cpu_percent", ascending=False)
-else:
-    process_df = process_df.sort_values(by="memory_percent", ascending=False)
+    col1, col2 = st.columns(2)
 
-# Display process table
-st.dataframe(process_df, height=400)
+    with col1:
+        st.subheader("🔥 CPU Usage")
+        cpu_fig = go.Figure(go.Bar(x=[f"Core {i}" for i in range(len(stats["cpu"]))], y=stats["cpu"]))
+        cpu_fig.update_layout(yaxis=dict(range=[0, 100]), title="CPU Usage per Core", template=theme)
+        st.plotly_chart(cpu_fig, use_container_width=True)
 
-# **KILL A PROCESS**
-st.subheader("🛑 Kill a Process")
-pid_to_kill = st.text_input("Enter PID to Kill:")
-if st.button("Terminate Process"):
-    try:
-        psutil.Process(int(pid_to_kill)).terminate()
-        st.success(f"✅ Process {pid_to_kill} terminated successfully!")
-    except psutil.NoSuchProcess:
-        st.error(f"❌ Process {pid_to_kill} no longer exists.")
-    except psutil.AccessDenied:
-        st.error(f"❌ Permission denied. Run as administrator.")
-    except Exception as e:
-        st.error(f"❌ Error: {e}")
+    with col2:
+        st.subheader("💾 Memory Usage")
+        mem_fig = go.Figure(go.Indicator(
+            mode="gauge+number",
+            value=stats["memory"],
+            title="Memory Usage",
+            gauge={"axis": {"range": [0, 100]}}
+        ))
+        mem_fig.update_layout(template=theme)
+        st.plotly_chart(mem_fig, use_container_width=True)
 
-# **PROCESS SCHEDULING ANALYSIS**
-st.subheader("⏳ Process Scheduling Efficiency")
+    st.subheader("📀 Disk Usage")
+    disk_fig = go.Figure(go.Indicator(
+        mode="gauge+number",
+        value=stats["disk"],
+        title="Disk Usage",
+        gauge={"axis": {"range": [0, 100]}}
+    ))
+    disk_fig.update_layout(template=theme)
+    st.plotly_chart(disk_fig, use_container_width=True)
 
-# Track CPU Burst Times (Simulated)
-cpu_burst_times = {}
-for proc in psutil.process_iter():
-    try:
-        cpu_burst_times[proc.pid] = proc.cpu_percent()
-    except (psutil.NoSuchProcess, psutil.AccessDenied):
-        continue  # Skip if the process no longer exists
+    st.subheader("🌐 Network Activity")
+    net_fig = go.Figure(data=[
+        go.Bar(name="Bytes Sent", x=["Network"], y=[stats["network"][0]]),
+        go.Bar(name="Bytes Received", x=["Network"], y=[stats["network"][1]])
+    ])
+    net_fig.update_layout(barmode='group', title="Network Data Transfer (MB)", template=theme)
+    st.plotly_chart(net_fig, use_container_width=True)
 
-# Convert to DataFrame
-burst_df = pd.DataFrame(cpu_burst_times.items(), columns=["PID", "CPU Burst Time"])
-burst_df = burst_df.sort_values(by="CPU Burst Time", ascending=False)
-
-# **CPU Burst Time Bar Chart**
-fig_burst = px.bar(burst_df, x="PID", y="CPU Burst Time", title="CPU Burst Time per Process", color="CPU Burst Time")
-st.plotly_chart(fig_burst, use_container_width=True)
-
-# **CONTEXT SWITCH ANALYSIS**
-context_switches = psutil.cpu_stats().ctx_switches
-st.metric("🔄 Context Switches", context_switches)
-
-# **LIVE CPU USAGE CHART**
-cpu_usage = []
-pids = []
-
-for proc in psutil.process_iter():
-    try:
-        cpu_usage.append(proc.cpu_percent())
-        pids.append(proc.pid)
-    except (psutil.NoSuchProcess, psutil.AccessDenied):
-        continue  # Skip if the process no longer exists
-
-fig_cpu = go.Figure()
-fig_cpu.add_trace(go.Bar(x=pids, y=cpu_usage, name="CPU Usage"))
-
-fig_cpu.update_layout(
-    title="Live CPU Usage Per Process",
-    xaxis_title="Process ID",
-    yaxis_title="CPU Usage (%)",
-)
-
-st.plotly_chart(fig_cpu, use_container_width=True)
-
-# **Auto-refresh every 5 seconds**
-time.sleep(5)
-st.rerun()
+    time.sleep(refresh_rate)
+    st.rerun()
